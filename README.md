@@ -1,2 +1,2 @@
-## test code and full report with CodeX - GPT 6.0 astra. 
+## test code and full report 
 This version was not verified!!
