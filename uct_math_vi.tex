@@ -1,0 +1,228 @@
+% Biên dịch: xelatex uct_math_vi.tex
+\documentclass[conference]{IEEEtran}
+\usepackage{fontspec}
+\usepackage[english]{babel}
+\babelprovide[import]{vietnamese}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{hyperref,algorithm,algpseudocode,enumitem}
+\setmainfont{Liberation Serif}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\newtheorem{definition}{Định nghĩa}[section]
+\newtheorem{proposition}[definition]{Mệnh đề}
+\newtheorem{theorem}[definition]{Định lý}
+\newtheorem{remark}[definition]{Nhận xét}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\title{Cơ sở toán học và phân tích thuật toán UCT\\
+\large Ứng dụng trong Monte Carlo Tree Search cho Tic-Tac-Toe/Caro}
+\author{\IEEEauthorblockN{Tên sinh viên}
+\IEEEauthorblockA{Bộ môn Trí tuệ nhân tạo\\
+Trường/Đơn vị công tác}}
+\begin{document}
+\maketitle
+\begin{abstract}
+Upper Confidence Bound applied to Trees (UCT) là quy tắc chọn nút của Monte
+Carlo Tree Search (MCTS), được xây dựng từ bài toán multi-armed bandit. Bài viết
+trình bày mô hình trò chơi hữu hạn, suy ra công thức UCB1 bằng cận Hoeffding,
+giải thích hằng số khám phá và bốn pha Selection--Expansion--Simulation--
+Backpropagation. Bài viết cũng ánh xạ công thức vào chương trình Caro 5 quân
+hiện có và đưa ra ứng dụng bonus cho Tic-Tac-Toe 3x3. Không có số liệu thực
+nghiệm nào được tự tạo khi chưa chạy thực nghiệm.
+\end{abstract}
+\begin{IEEEkeywords}
+MCTS, UCT, UCB1, multi-armed bandit, trò chơi đối kháng, Tic-Tac-Toe, Caro
+\end{IEEEkeywords}
+
+\section{Giới thiệu}
+Monte Carlo Tree Search xây dựng dần cây tìm kiếm bằng các lần mô phỏng thay vì
+mở rộng toàn bộ cây trò chơi. UCT là quy tắc Selection nổi tiếng: nó ưu tiên nút
+có trung bình phần thưởng cao nhưng vẫn dành ngân sách cho nút ít được thăm
+\cite{kocsis2006}.
+
+\paragraph{Ghi chú.} Cách gọi ``MCTS kết hợp UCT'' trong đề tài nên hiểu chính
+xác là MCTS dùng UCT trong pha Selection. Rollout, điều kiện thắng và quy ước
+phần thưởng là các thiết kế độc lập.
+
+\section{Mô hình toán học của trò chơi}
+\begin{definition}[Trò chơi đối kháng hữu hạn]
+Một trò chơi được mô hình bởi
+\[
+\mathcal G=(\mathcal S,\mathcal A,T,s_0,\mathcal Z,r),
+\]
+trong đó $\mathcal S$ là tập trạng thái, $\mathcal A(s)$ là tập nước đi hợp lệ,
+$T(s,a)$ là trạng thái kế tiếp, $s_0$ là trạng thái đầu, $\mathcal Z$ là tập
+trạng thái kết thúc và $r\in[0,1]$ là phần thưởng nhìn từ một người chơi.
+\end{definition}
+
+Với Tic-Tac-Toe, trạng thái gồm bàn cờ 3x3 và người đang đi. Với Caro, trạng
+thái có thể là bàn $n\times n$; người chơi thắng khi tạo ít nhất năm quân liên
+tiếp theo ngang, dọc hoặc hai hướng chéo. $\mathcal A(s)$ chỉ chứa ô trống;
+trạng thái kết thúc khi có người thắng hoặc bàn đầy.
+
+\paragraph{Ghi chú.} Hàm chuyển trạng thái phải bảo toàn luật. Nếu rollout đặt
+quân vào ô đã chiếm, các mẫu mô phỏng không còn mô tả đúng trò chơi.
+
+\section{Từ multi-armed bandit đến UCB1}
+\subsection{Bài toán bandit}
+Xét $K$ cần gạt. Mỗi lần chọn cần $i$ nhận phần thưởng ngẫu nhiên $X_i\in[0,1]$
+với kỳ vọng $\mu_i$. Sau $t$ lượt, đặt
+\[
+N_i(t)=\sum_{\tau=1}^{t}\mathbf 1\{I_\tau=i\},\qquad
+\widehat\mu_i(t)=\frac{1}{N_i(t)}\sum_{\tau:I_\tau=i}X_\tau.
+\]
+Gọi $\mu^*=\max_i\mu_i$ và $\Delta_i=\mu^*-\mu_i$. Regret kỳ vọng là
+\[
+R_T=\E\!\left[\sum_{t=1}^{T}(\mu^*-\mu_{I_t})\right]
+=\sum_{i=1}^{K}\Delta_i\E[N_i(T)].
+\]
+
+\subsection{Cận tin cậy và UCB1}
+Với biến độc lập trong $[0,1]$, bất đẳng thức Hoeffding cho
+\[
+\Prob(|\widehat\mu_i-\mu_i|\geq\varepsilon)
+\leq 2\exp(-2N_i\varepsilon^2).
+\]
+Chọn bán kính $b_i(t)=\sqrt{2\ln(t)/N_i(t)}$ dẫn đến chỉ số
+\[
+U_i(t)=\widehat\mu_i(t)+\sqrt{\frac{2\ln t}{N_i(t)}}.
+\]
+Thuật toán chọn cần có $U_i(t)$ lớn nhất. Hạng tử đầu là khai thác, hạng tử
+thứ hai là khám phá. UCB1 có cận regret logarithmic theo $T$ dưới các giả thiết
+bandit chuẩn \cite{auer2002}.
+
+\begin{proposition}[Ý nghĩa UCB]
+Khi $N_i(t)$ nhỏ, bán kính tin cậy lớn nên cần $i$ dễ được thử lại. Khi $N_i(t)$
+tăng, bán kính giảm theo $N_i(t)^{-1/2}$ và quyết định dần phụ thuộc vào trung
+bình thực nghiệm.
+\end{proposition}
+
+\paragraph{Ghi chú.} Trong UCT, công thức thường viết
+\[
+\widehat\mu_j+c\sqrt{\frac{\ln N(s)}{N(s,j)}},
+\]
+với $c>0$. $c=\sqrt2$ tương ứng một chuẩn hóa phổ biến của UCB1; $c=1.4$ chỉ
+là giá trị khởi đầu thực dụng, không phải tối ưu phổ quát.
+
+\section{UCT trên cây trò chơi}
+\begin{definition}[Nút tìm kiếm]
+Mỗi nút $s$ lưu số lần thăm $N(s)$, tổng phần thưởng $W(s)$, nút cha, các nút
+con đã mở rộng và các nước chưa thử. Giá trị thực nghiệm là
+\[
+Q(s)=W(s)/N(s)\quad\text{khi }N(s)>0.
+\]
+\end{definition}
+
+Tại nút $s$, với con $s'$ tương ứng nước đi $a$, UCT chọn
+\[
+a^*\in\arg\max_a\left[Q(s,a)+c\sqrt{\frac{\ln N(s)}{N(s,a)}}\right].
+\tag{1}
+\]
+Nếu $N(s,a)=0$, chỉ số được quy ước bằng $+\infty$ để mọi con mới được thăm.
+
+\subsection{Bốn pha MCTS}
+\begin{enumerate}[label=\arabic*.]
+\item \textbf{Selection:} đi từ gốc xuống bằng (1) đến nút kết thúc hoặc nút còn
+nước chưa thử.
+\item \textbf{Expansion:} chọn một nước chưa thử, tạo nút con và áp dụng nước đi.
+\item \textbf{Simulation:} rollout đến kết thúc bằng chính sách ngẫu nhiên hoặc
+heuristic.
+\item \textbf{Backpropagation:} truyền kết quả ngược lên đường đi, cập nhật $N,W$.
+\end{enumerate}
+
+\begin{algorithm}[h]
+\caption{MCTS--UCT cho trò chơi hai người}
+\begin{algorithmic}[1]
+\Require trạng thái gốc $s_0$, ngân sách $M$, hằng số $c$
+\State tạo nút gốc $v\gets s_0$
+\For{$k=1$ to $M$}
+  \State $u\gets v$
+  \While{$u$ đã mở rộng hết và chưa kết thúc}
+    \State $u\gets\arg\max_{x}\left(Q(x)+c\sqrt{\ln N(u)/N(x)}\right)$
+  \EndWhile
+  \If{$u$ chưa kết thúc và còn nước chưa thử}
+    \State tạo một con từ nước chưa thử; đặt $u$ bằng nút mới
+  \EndIf
+  \State $z\gets\mathrm{Rollout}(u)$; truyền $z$ ngược từ $u$ về $v$
+\EndFor
+\State \Return con của $v$ có số lượt thăm lớn nhất
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Ghi chú.} Chọn con có nhiều lượt thăm khác chọn con có $Q$ lớn nhất.
+Quy tắc max-visits ổn định hơn khi một trung bình cao dựa trên rất ít mẫu; đây
+cũng là quy tắc dùng trong mã nguồn hiện có.
+
+\section{Phân tích xác suất và giới hạn}
+Tại một nút cố định, nếu coi mỗi hành động là một arm và phần thưởng rollout độc
+lập, bị chặn trong $[0,1]$, trực giác UCB1 áp dụng được. Trong cây thật, mẫu được
+phân bổ thích nghi và chính sách ở các nút con thay đổi, nên các mẫu không hoàn
+toàn độc lập.
+
+\begin{theorem}[Tính nhất quán tiệm cận của UCT]
+Trong các giả thiết chuẩn của UCT đối với cây hữu hạn, phần thưởng bị chặn và
+rollout hợp lệ, khi số mô phỏng tiến tới vô hạn, xác suất UCT chọn một nước không
+tối ưu tại gốc tiến tới $0$ \cite{kocsis2006}.
+\end{theorem}
+
+Đây không phải bảo đảm thắng với ngân sách hữu hạn. Cây sâu, phần thưởng hiếm,
+nhánh bẫy, rollout thiên lệch và giới hạn thời gian có thể làm kết quả hữu hạn
+khác xa giới hạn.
+
+Với $U=Q+c\sqrt{\ln N(s)/N(s,a)}$: $c=0$ thiên về khai thác; $c$ lớn thiên về
+khám phá; $c$ trung bình cần hiệu chỉnh thực nghiệm.
+
+\paragraph{Ghi chú.} Không kết luận một $c$ tốt nhất từ một ván. Cần nhiều seed,
+đổi người đi trước, ghi tỷ lệ thắng--hòa--thua, thời gian, số nút và đối thủ.
+
+\section{Ánh xạ vào chương trình Caro hiện có}
+Trong \texttt{tic\_tac\_toe\_ai.py}, \texttt{MCTSNode} lưu \texttt{visits} và
+\texttt{wins}. Hàm \texttt{uct(exploration)} tính
+\[
+W/N+c\sqrt{\ln N_{\mathrm{parent}}/N},
+\]
+và trả vô cực cho nút chưa thăm. \texttt{best\_mcts\_move} thực hiện Selection,
+Expansion, gọi \texttt{rollout}, rồi Backpropagation theo \texttt{--iterations}.
+
+Phần thưởng nhìn từ người vừa đi là
+\[
+z=\begin{cases}1,&\text{thắng},\\0.5,&\text{hòa},\\0,&\text{thua}.
+\end{cases}
+\]
+Quy ước phải nhất quán trong UCT và Backpropagation. Rollout heuristic ưu tiên
+nước thắng ngay hoặc chặn đối thủ làm thay đổi phân phối mẫu, nên không nên gọi
+ước lượng đó là rollout ngẫu nhiên không thiên lệch.
+
+\section{Bonus: Tic-Tac-Toe 3x3}
+Với Tic-Tac-Toe, $\mathcal A(s)$ là các ô trống, $T$ đặt quân của người đang đi,
+và terminal reward là $1,0,0.5$. Mỗi vòng gồm: mở rộng ô trống; rollout đến khi
+có ba quân liên tiếp hoặc bàn đầy; cập nhật đường đi; chọn nước gốc có nhiều lượt
+thăm nhất. Tic-Tac-Toe hữu ích vì có thể giải chính xác bằng minimax, do đó UCT
+có thể được kiểm tra với đối thủ tối ưu thay vì chỉ đếm một ván thắng.
+
+\section{Thiết kế thực nghiệm đề xuất}
+Không đưa số liệu giả. Có thể so sánh $c\in\{0.5,1,\sqrt2,2\}$ và
+$M\in\{100,500,1000,5000\}$, dùng ít nhất 30 seed mỗi cấu hình, so sánh rollout
+ngẫu nhiên với heuristic, và báo cáo tỷ lệ thắng--hòa--thua, thời gian mỗi nước,
+số nút, $N(s_0)$, kích thước bàn, người đi trước, luật thắng và đối thủ.
+
+\section{Kết luận}
+UCT đưa cận tin cậy vào cây trò chơi: $Q$ khai thác, còn thành phần căn bậc hai
+khám phá. ``Hội tụ với vô hạn mô phỏng'' không đồng nghĩa ``luôn thắng với ngân
+sách hữu hạn''. Chất lượng trong Caro/Tic-Tac-Toe phụ thuộc vào sinh nước hợp lệ,
+rollout, phần thưởng, $c$ và số vòng lặp.
+
+\begin{thebibliography}{9}
+\bibitem{auer2002} P. Auer, N. Cesa-Bianchi, and P. Fischer, ``Finite-time
+Analysis of the Multiarmed Bandit Problem,'' \emph{Machine Learning}, 47,
+235--256, 2002. \href{https://doi.org/10.1023/A:1013689704352}{doi}.
+\bibitem{kocsis2006} L. Kocsis and C. Szepesvári, ``Bandit Based Monte-Carlo
+Planning,'' ECML, LNCS 4212, 282--293, 2006.
+\href{https://doi.org/10.1007/11871842_29}{doi}.
+\bibitem{browne2012} C. B. Browne et al., ``A Survey of Monte Carlo Tree Search
+Methods,'' \emph{IEEE TCIAIG}, 4(1), 1--43, 2012.
+\href{https://doi.org/10.1109/TCIAIG.2012.2186810}{doi}.
+\bibitem{sutton2018} R. S. Sutton and A. G. Barto, \emph{Reinforcement Learning:
+An Introduction}, 2nd ed., MIT Press, 2018.
+\href{http://incompleteideas.net/book/the-book-2nd.html}{online edition}.
+\end{thebibliography}
+\end{document}

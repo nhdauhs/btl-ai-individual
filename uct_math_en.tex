@@ -1,0 +1,230 @@
+% Compile with: xelatex uct_math_en.tex
+\documentclass[conference]{IEEEtran}
+\usepackage{fontspec}
+\usepackage[english]{babel}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{hyperref,algorithm,algpseudocode,enumitem}
+\setmainfont{Liberation Serif}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{proposition}[definition]{Proposition}
+\newtheorem{theorem}[definition]{Theorem}
+\newtheorem{remark}[definition]{Remark}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\title{Mathematical Foundations and Analysis of UCT\\
+\large An Application to Monte Carlo Tree Search for Tic-Tac-Toe/Gomoku}
+\author{\IEEEauthorblockN{Student Author}
+\IEEEauthorblockA{Department of Artificial Intelligence\\
+University or Institution}}
+\begin{document}
+\maketitle
+\begin{abstract}
+Upper Confidence Bound applied to Trees (UCT) is a node-selection rule for Monte
+Carlo Tree Search (MCTS), derived from the multi-armed bandit problem. This paper
+formulates finite adversarial games, derives UCB1 from a concentration bound,
+explains the exploration constant, and analyzes Selection, Expansion, Simulation,
+and Backpropagation. It maps the mathematics to the existing five-in-a-row code
+and gives a bonus formulation for 3x3 Tic-Tac-Toe. Theoretical guarantees are
+separated from empirical claims; no unmeasured numbers are reported.
+\end{abstract}
+\begin{IEEEkeywords}
+MCTS, UCT, UCB1, multi-armed bandits, adversarial games, Tic-Tac-Toe, Gomoku
+\end{IEEEkeywords}
+
+\section{Introduction}
+Monte Carlo Tree Search incrementally constructs a search tree using simulations
+instead of exhaustively expanding the game tree. UCT is a standard Selection rule:
+it prefers actions with high empirical reward while reserving computation for
+under-sampled actions \cite{kocsis2006}.
+
+\paragraph{Note.} ``MCTS combined with UCT'' is most precisely understood as MCTS
+using UCT during Selection. The rollout policy, terminal test, and reward convention
+are separate design choices.
+
+\section{Mathematical game model}
+\begin{definition}[Finite adversarial game]
+Represent a game by
+\[
+\mathcal G=(\mathcal S,\mathcal A,T,s_0,\mathcal Z,r),
+\]
+where $\mathcal S$ is the state space, $\mathcal A(s)$ is the legal-action set,
+$T(s,a)$ is the successor state, $s_0$ is the initial state, $\mathcal Z$ is the
+terminal set, and $r\in[0,1]$ is a reward from one player's perspective.
+\end{definition}
+
+For Tic-Tac-Toe, a state contains a 3x3 board and the player to move. For Gomoku,
+the board may be $n\times n$ and a player wins after forming at least five
+consecutive marks horizontally, vertically, or diagonally. Legal actions are empty
+cells; terminal states are wins or full boards.
+
+\paragraph{Note.} The transition function must enforce legality. If a rollout can
+play an occupied cell, its samples no longer represent the intended game.
+
+\section{From multi-armed bandits to UCB1}
+\subsection{The bandit problem}
+Consider $K$ arms. Pulling arm $i$ gives a random reward $X_i\in[0,1]$ with mean
+$\mu_i$. After $t$ rounds, define
+\[
+N_i(t)=\sum_{\tau=1}^{t}\mathbf 1\{I_\tau=i\},\qquad
+\widehat\mu_i(t)=\frac{1}{N_i(t)}\sum_{\tau:I_\tau=i}X_\tau.
+\]
+Let $\mu^*=\max_i\mu_i$ and $\Delta_i=\mu^*-\mu_i$. Expected regret is
+\[
+R_T=\E\!\left[\sum_{t=1}^{T}(\mu^*-\mu_{I_t})\right]
+=\sum_{i=1}^{K}\Delta_i\E[N_i(T)].
+\]
+
+\subsection{Confidence bounds and UCB1}
+For independent variables in $[0,1]$, Hoeffding's inequality gives
+\[
+\Prob(|\widehat\mu_i-\mu_i|\geq\varepsilon)
+\leq 2\exp(-2N_i\varepsilon^2).
+\]
+Using $b_i(t)=\sqrt{2\ln(t)/N_i(t)}$ gives the UCB1 index
+\[
+U_i(t)=\widehat\mu_i(t)+\sqrt{\frac{2\ln t}{N_i(t)}}.
+\]
+The algorithm selects an arm maximizing this index. The first term exploits; the
+second explores. UCB1 has logarithmic regret bounds in $T$ under standard bandit
+assumptions \cite{auer2002}.
+
+\begin{proposition}[Interpretation of UCB]
+When $N_i(t)$ is small, the confidence radius is large and arm $i$ is likely to be
+sampled again. As $N_i(t)$ grows, the radius decreases as $N_i(t)^{-1/2}$ and
+the decision increasingly reflects the empirical mean.
+\end{proposition}
+
+\paragraph{Note.} UCT commonly uses
+\[
+\widehat\mu_j+c\sqrt{\frac{\ln N(s)}{N(s,j)}},
+\]
+with $c>0$. $c=\sqrt2$ is a common UCB1 normalization; $c=1.4$ is only a
+practical starting point, not a universal optimum.
+
+\section{UCT on a game tree}
+\begin{definition}[Search node]
+A node $s$ stores its visit count $N(s)$, accumulated reward $W(s)$, parent,
+expanded children, and untried actions. Its empirical value is
+\[
+Q(s)=W(s)/N(s)\quad\text{when }N(s)>0.
+\]
+\end{definition}
+
+At state $s$, for a child corresponding to action $a$, UCT selects
+\[
+a^*\in\arg\max_a\left[Q(s,a)+c\sqrt{\frac{\ln N(s)}{N(s,a)}}\right].
+\tag{1}
+\]
+If $N(s,a)=0$, the index is set to $+\infty$, so every new child is sampled.
+
+\subsection{The four MCTS phases}
+\begin{enumerate}[label=\arabic*.]
+\item \textbf{Selection:} descend from the root using (1) to a terminal node or
+a node with an untried action.
+\item \textbf{Expansion:} choose an untried action, create a child, and apply it.
+\item \textbf{Simulation:} roll out to termination using a random or heuristic policy.
+\item \textbf{Backpropagation:} propagate the outcome back along the path and update
+$N$ and $W$.
+\end{enumerate}
+
+\begin{algorithm}[h]
+\caption{MCTS--UCT for a two-player game}
+\begin{algorithmic}[1]
+\Require root state $s_0$, budget $M$, exploration constant $c$
+\State create root node $v\gets s_0$
+\For{$k=1$ to $M$}
+  \State $u\gets v$
+  \While{$u$ is fully expanded and nonterminal}
+    \State $u\gets\arg\max_x\left(Q(x)+c\sqrt{\ln N(u)/N(x)}\right)$
+  \EndWhile
+  \If{$u$ is nonterminal and has an untried action}
+    \State create a child from an untried action; set $u$ to the new node
+  \EndIf
+  \State $z\gets\mathrm{Rollout}(u)$; backpropagate $z$ from $u$ to $v$
+\EndFor
+\State \Return the root child with the largest visit count
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Note.} Choosing the most visited child is not the same as choosing the
+largest $Q$. Visit count is often more stable when a high mean is based on very few
+samples; it is also the rule used by the current code.
+
+\section{Probability and asymptotic analysis}
+At a fixed state, if each action is treated as an arm and rollout rewards are
+independent and bounded in $[0,1]$, UCB1 intuition applies locally. In a real tree,
+allocation is adaptive and policies below nodes change, so samples are not fully
+independent.
+
+\begin{theorem}[Asymptotic consistency of UCT]
+Under the standard assumptions for UCT on a finite tree, bounded rewards, and valid
+rollouts, as the number of simulations tends to infinity, the probability that UCT
+selects a suboptimal root action tends to zero \cite{kocsis2006}.
+\end{theorem}
+
+This is not a guarantee of a win with a small finite budget. Deep trees, rare
+rewards, trap actions, biased rollouts, and time limits may make finite-budget
+performance far from the limit.
+
+For $U=Q+c\sqrt{\ln N(s)/N(s,a)}$, $c=0$ favors exploitation, large $c$ favors
+exploration, and intermediate values require empirical tuning.
+
+\paragraph{Note.} Do not claim that one $c$ is best from one game. Use multiple
+seeds, swap the first player, and report wins, draws, losses, time, nodes, and the
+opponent definition.
+
+\section{Mapping to the existing Gomoku implementation}
+In \texttt{tic\_tac\_toe\_ai.py}, \texttt{MCTSNode} stores \texttt{visits} and
+\texttt{wins}. \texttt{uct(exploration)} computes
+\[
+W/N+c\sqrt{\ln N_{\mathrm{parent}}/N},
+\]
+returning infinity for an unvisited node. \texttt{best\_mcts\_move} performs
+Selection, Expansion, calls \texttt{rollout}, and performs Backpropagation for
+the number of iterations given by \texttt{--iterations}.
+
+The reward is measured from the player who just moved:
+\[
+z=\begin{cases}1,&\text{win},\\0.5,&\text{draw},\\0,&\text{loss}.
+\end{cases}
+\]
+This convention must be consistent in both UCT and Backpropagation. A heuristic
+rollout that prefers immediate wins or blocking moves changes the sampling
+distribution; it should not be described as unbiased random play.
+
+\section{Bonus: 3x3 Tic-Tac-Toe}
+For Tic-Tac-Toe, $\mathcal A(s)$ is the set of empty cells, $T$ places the mark of
+the player to move, and terminal rewards are $1,0,0.5$. Each iteration expands an
+empty cell, rolls out until three-in-a-row or a full board, updates the path, and
+selects the root action with the largest visit count. Tic-Tac-Toe is useful because
+minimax can solve it exactly, allowing UCT to be evaluated against an optimal player
+rather than by counting one observed win.
+
+\section{Suggested experimental protocol}
+Do not insert invented measurements. Compare $c\in\{0.5,1,\sqrt2,2\}$ and
+$M\in\{100,500,1000,5000\}$, use at least 30 seeds per configuration, compare
+random and heuristic rollouts, and report win/draw/loss rates, move time, node
+count, $N(s_0)$, board size, first player, win rule, and opponent.
+
+\section{Conclusion}
+UCT brings confidence bounds to a game tree: $Q$ exploits and the square-root term
+explores. ``Converges with infinitely many simulations'' does not mean ``always
+wins with a finite budget.'' Performance in Gomoku and Tic-Tac-Toe depends on
+legal move generation, rollout policy, rewards, $c$, and the simulation budget.
+
+\begin{thebibliography}{9}
+\bibitem{auer2002} P. Auer, N. Cesa-Bianchi, and P. Fischer, ``Finite-time
+Analysis of the Multiarmed Bandit Problem,'' \emph{Machine Learning}, 47,
+235--256, 2002. \href{https://doi.org/10.1023/A:1013689704352}{doi}.
+\bibitem{kocsis2006} L. Kocsis and C. Szepesvári, ``Bandit Based Monte-Carlo
+Planning,'' ECML, LNCS 4212, 282--293, 2006.
+\href{https://doi.org/10.1007/11871842_29}{doi}.
+\bibitem{browne2012} C. B. Browne et al., ``A Survey of Monte Carlo Tree Search
+Methods,'' \emph{IEEE TCIAIG}, 4(1), 1--43, 2012.
+\href{https://doi.org/10.1109/TCIAIG.2012.2186810}{doi}.
+\bibitem{sutton2018} R. S. Sutton and A. G. Barto, \emph{Reinforcement Learning:
+An Introduction}, 2nd ed., MIT Press, 2018.
+\href{http://incompleteideas.net/book/the-book-2nd.html}{online edition}.
+\end{thebibliography}
+\end{document}
