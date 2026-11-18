@@ -1,0 +1,5 @@
+size,games,iterations,c,rollout,wins,draws,losses,win_rate,mean_seconds_per_game,mean_simulations
+5,50,100,0.5,random,43,7,0,0.86,1.1483849051000015,888.0
+5,50,100,1.0,random,46,4,0,0.92,1.0673047007199739,810.0
+5,50,100,1.4,random,47,3,0,0.94,1.0930091257400454,826.0
+5,50,100,2.0,random,48,1,1,0.96,1.1187009283599991,854.0

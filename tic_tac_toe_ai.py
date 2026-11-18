@@ -232,8 +232,16 @@ def rollout(board: Board, heuristic: bool, rng: random.Random) -> Optional[str]:
                 opponent = O if current.player == X else X
                 blocks = []
                 for move in moves:
-                    candidate = current.play(move)
-                    if candidate.winner(move) == opponent:
+                    # Test the threat on a temporary board where the opponent
+                    # is the player to move.  Playing ``move`` as the current
+                    # player can only detect our own win, so it never detects
+                    # an opponent's immediate winning square.
+                    threat = Board(
+                        current.size,
+                        [row[:] for row in current.cells],
+                        opponent,
+                    ).play(move)
+                    if threat.winner(move) == opponent:
                         blocks.append(move)
                 if blocks:
                     moves = blocks
